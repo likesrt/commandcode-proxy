@@ -69,7 +69,7 @@ refreshCCVersion(); // 启动时立即拉取
 setInterval(refreshCCVersion, CC_VERSION_REFRESH_MS);
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB — 请求体大小上限
-const STREAM_IDLE_TIMEOUT_MS = 60000;   // 60s — 流式无新数据中断
+const STREAM_IDLE_TIMEOUT_MS = 30000;   // 30s — 流式无新数据中断
 const NONSTREAM_IDLE_TIMEOUT_MS = 90000; // 90s — 非流式超时更宽容
 
 // ── 日志 ─────────────────────────────────────────────
