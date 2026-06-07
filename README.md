@@ -2,7 +2,7 @@
 
 将 Command Code API 转换为 OpenAI / Anthropic 兼容接口的反代代理。单文件，零外部依赖。
 
-基于对官方 CLI v0.32.3 流量的抓包逆向，精确还原了 Command Code API 的请求协议，并实现了多层反检测伪装。
+基于对官方 CLI v0.32.3 网络流量的分析，精确还原了 Command Code API 的请求协议，并实现了多层兼容适配。
 
 **完整功能**：OpenAI Chat Completions + Anthropic Messages API | 流式/非流式输出 | 工具调用 (tool_use) | 多模态图片输入 | 推理强度 (reasoning_effort) | 动态模型列表 | 缓存命中指标 | 30s/90s 流式超时
 
@@ -325,7 +325,7 @@ print(message.content[0].text)
 
 ## 反检测
 
-基于对官方 CLI v0.32.3 的抓包逆向，实现了以下伪装：
+基于对官方 CLI v0.32.3 流量的分析，实现了以下兼容适配：
 
 | 机制 | 实现 |
 |------|------|
@@ -341,7 +341,7 @@ print(message.content[0].text)
 
 ## 协议细节
 
-### CC API 请求体（抓包还原）
+### CC API 请求体结构
 
 ```json
 {
@@ -373,7 +373,7 @@ print(message.content[0].text)
 
 ### CC API 图片消息格式
 
-CLI 发送图片的真实格式（抓包还原）：
+CLI 发送图片的格式：
 
 ```json
 {
@@ -394,7 +394,7 @@ CLI 发送图片的真实格式（抓包还原）：
 - **非官方**：本项目与 Command Code 无任何关联，非官方产品。
 - **个人使用**：使用者应自行承担所有责任。请遵守 [Command Code 服务条款](https://commandcode.ai/tos)。
 - **API Key**：本项目不会收集、上传或泄露你的 API Key。Key 必须在每次请求的 `Authorization: Bearer <key>` 头中传入，不存储在配置中。
-- **逆向工程**：协议基于对本地 CLI 网络流量的被动观察，未对服务端进行任何未授权访问、破解或篡改。
+- **合规性**：协议基于对本地 CLI 网络流量的被动观察，未对服务端进行任何未授权访问、破解或篡改。
 - **账号风险**：建议和正常 CLI 使用频率保持一致，超高并发调用可能触发风控。
 
 ## 开发
