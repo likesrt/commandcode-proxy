@@ -16,15 +16,12 @@ function loadConfig() {
   const defaults = {
     port: 3000,
     host: '0.0.0.0',
-    apiKey: '',
     apiBase: 'https://api.commandcode.ai',
     projectSlug: 'cc-proxy',
     logFile: '',
     logLevel: 'info',
     useProviderModels: true,
     modelRefreshIntervalMs: 5 * 60 * 1000,  // 5 minutes
-    visionModel: 'moonshotai/Kimi-K2.6',
-    enableVision: false,
   };
 
   const configPath = resolve(__dirname, 'config.json');
@@ -38,15 +35,12 @@ function loadConfig() {
   }
 
   // 环境变量覆写
-  if (process.env.CC_API_KEY) defaults.apiKey = process.env.CC_API_KEY;
   if (process.env.PORT) defaults.port = parseInt(process.env.PORT);
   if (process.env.HOST) defaults.host = process.env.HOST;
   if (process.env.CC_API_BASE) defaults.apiBase = process.env.CC_API_BASE;
   if (process.env.PROJECT_SLUG) defaults.projectSlug = process.env.PROJECT_SLUG;
   if (process.env.LOG_FILE) defaults.logFile = process.env.LOG_FILE;
   if (process.env.CC_USE_PROVIDER_MODELS) defaults.useProviderModels = process.env.CC_USE_PROVIDER_MODELS !== 'false';
-  if (process.env.CC_VISION_MODEL) defaults.visionModel = process.env.CC_VISION_MODEL;
-  if (process.env.CC_ENABLE_VISION) defaults.enableVision = process.env.CC_ENABLE_VISION !== 'false';
 
   return defaults;
 }
@@ -68,16 +62,14 @@ async function refreshCCVersion() {
       log('info', 'CC Version refreshed from npm', { version: CC_VERSION });
     }
   } catch (e) {
-    if (CC_VERSION === CC_VERSION_FALLBACK) {
-      CC_VERSION = CC_VERSION_FALLBACK;
-    }
     log('warn', 'CC Version fetch failed, using current', { version: CC_VERSION, error: e.message });
   }
 }
 refreshCCVersion(); // 启动时立即拉取
 setInterval(refreshCCVersion, CC_VERSION_REFRESH_MS);
 
-const STREAM_IDLE_TIMEOUT_MS = 30000;   // 30s — 流式无新数据中断
+const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB — 请求体大小上限
+const STREAM_IDLE_TIMEOUT_MS = 60000;   // 60s — 流式无新数据中断
 const NONSTREAM_IDLE_TIMEOUT_MS = 90000; // 90s — 非流式超时更宽容
 
 // ── 日志 ─────────────────────────────────────────────
@@ -109,7 +101,7 @@ function ensureSession(apiKey) {
   const jitter = Math.floor(Math.random() * SESSION_JITTER_MS);
   const sessionId = randomUUID();
   sessionStore.set(apiKey, { sessionId, expiresAt: now + SESSION_DURATION_MS + jitter });
-  log('info', 'Session created', { keyPrefix: apiKey.slice(0, 20) + '...', sessionId: sessionId.slice(0, 8), storeSize: sessionStore.size });
+  log('info', 'Session created', { keyPrefix: apiKey.slice(0, 8) + '...', sessionId: sessionId.slice(0, 8), storeSize: sessionStore.size });
   return sessionId;
 }
 
@@ -279,7 +271,7 @@ function buildCcRequest(openaiReq) {
     return msg;
   });
 
-    const threadId = newThreadId();
+  const threadId = newThreadId();
 
   const body = {
     config: {
@@ -324,18 +316,18 @@ function buildCcRequest(openaiReq) {
       input_schema: t.function?.parameters || t.input_schema || { type: 'object', properties: {} },
     }));
   }
-if (tool_choice !== undefined) {
-  // OpenAI 格式 → CC (Anthropic 风格) 格式
-  if (typeof tool_choice === 'string') {
-    const map = { 'auto': 'auto', 'none': 'none', 'required': 'any' };
-    body.params.tool_choice = { type: map[tool_choice] || 'auto' };
-  } else if (tool_choice.type === 'function') {
-    // OpenAI object → Anthropic object
-    body.params.tool_choice = { type: 'tool', name: tool_choice.function?.name };
-  } else {
-    body.params.tool_choice = tool_choice;
+  if (tool_choice !== undefined) {
+    // OpenAI 格式 → CC (Anthropic 风格) 格式
+    if (typeof tool_choice === 'string') {
+      const map = { 'auto': 'auto', 'none': 'none', 'required': 'any' };
+      body.params.tool_choice = { type: map[tool_choice] || 'auto' };
+    } else if (tool_choice.type === 'function') {
+      // OpenAI object → Anthropic object
+      body.params.tool_choice = { type: 'tool', name: tool_choice.function?.name };
+    } else {
+      body.params.tool_choice = tool_choice;
+    }
   }
-}
   if (parallel_tool_calls !== undefined) {
     body.params.parallel_tool_calls = parallel_tool_calls;
   }
@@ -345,112 +337,6 @@ if (tool_choice !== undefined) {
 
 function tryParseJSON(str) {
   try { return JSON.parse(str); } catch { return {}; }
-}
-
-// ── Vision Pipeline ─────────────────────────────────
-
-function hasImages(messages) {
-  for (const msg of messages) {
-    if (Array.isArray(msg.content)) {
-      for (const part of msg.content) {
-        if (part.type === 'image_url') return true;
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * Send a single image to the vision model, get back a text description.
- * Used internally by processImages().
- */
-async function describeImage(imageUrlObj, visionModel, apiKey, incomingHeaders) {
-  const visionOpenAiReq = {
-    model: visionModel,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Please describe this image in detail.' },
-          { type: 'image_url', image_url: imageUrlObj },
-        ],
-      },
-    ],
-    max_tokens: 1000,
-  };
-
-  const ccBody = buildCcRequest(visionOpenAiReq);
-  const ccResponse = await forwardToCC(ccBody, apiKey, incomingHeaders);
-
-  if (!ccResponse.ok) {
-    const errorText = await ccResponse.text().catch(() => '');
-    throw new Error(`Vision API error (${ccResponse.status}): ${errorText.slice(0, 200)}`);
-  }
-
-  // Parse NDJSON stream — CC always streams
-  let fullText = '';
-  const reader = ccResponse.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop() || '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === '[DONE]' || trimmed.startsWith(':')) continue;
-      try {
-        const event = JSON.parse(trimmed);
-        if (event.type === 'text-delta') fullText += event.text || '';
-      } catch { /* skip malformed lines */ }
-    }
-  }
-  // Process remaining buffer
-  if (buf.trim()) {
-    try {
-      const event = JSON.parse(buf.trim());
-      if (event.type === 'text-delta') fullText += event.text || '';
-    } catch { /* skip */ }
-  }
-
-  return fullText.trim() || 'No description available';
-}
-
-/**
- * Scan all messages for image_url content blocks, send each image to the
- * vision model, and replace the image block with a text description.
- */
-async function processImages(messages, visionModel, apiKey, incomingHeaders) {
-  // Deep clone to avoid mutating the original request
-  const result = JSON.parse(JSON.stringify(messages));
-
-  for (const msg of result) {
-    if (!Array.isArray(msg.content)) continue;
-
-    // Quick check: does this message have any image_url at all?
-    let hasImage = false;
-    for (const part of msg.content) {
-      if (part.type === 'image_url') { hasImage = true; break; }
-    }
-    if (!hasImage) continue;
-
-    // Rebuild content array, replacing each image_url with a text description
-    const newContent = [];
-    for (const part of msg.content) {
-      if (part.type === 'image_url') {
-        const description = await describeImage(part.image_url, visionModel, apiKey, incomingHeaders);
-        newContent.push({ type: 'text', text: `[Image description: ${description}]` });
-      } else {
-        newContent.push(part);
-      }
-    }
-    msg.content = newContent;
-  }
-
-  return result;
 }
 
 // ── CC NDJSON → OpenAI SSE 转换 ────────────────────
@@ -622,7 +508,15 @@ function mapCcError(ccStatus, ccBody) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', c => chunks.push(c));
+    let totalSize = 0;
+    req.on('data', c => {
+      totalSize += c.length;
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy(new Error('Request body too large'));
+        reject(new Error('Request body exceeds 10MB limit'));
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
       catch { reject(new Error('Invalid JSON')); }
@@ -788,7 +682,7 @@ async function handleChatCompletions(req, res) {
               case 'tool-call':
                 toolCalls = toolCalls || [];
                 toolCalls.push({
-                  id: event.toolCallId || ('call_' + Date.now() + '_' + toolCalls.length),
+                  id: event.toolCallId || ('call_' + randomUUID().slice(0, 8)),
                   type: 'function',
                   function: {
                     name: event.toolName || '',
@@ -1010,7 +904,7 @@ function convertAnthropicToOpenAI(anthropicReq) {
     if (t.type === 'disabled' || t.type === 'none') {
       // 不发送 reasoning_effort
     } else if (t.type === 'adaptive') {
-      openaiReq.reasoning_effort = t.effort || 'medium';
+      openaiReq.reasoning_effort = t.effort ?? 'medium';
     } else if (t.budget_tokens !== undefined) {
       if (t.budget_tokens >= 10000) openaiReq.reasoning_effort = 'high';
       else if (t.budget_tokens >= 5000) openaiReq.reasoning_effort = 'medium';
@@ -1031,12 +925,12 @@ async function* createAnthropicSseTranslator(response, model) {
   let currentBlockIndex = -1;
   let currentBlockType = null;
   let blockStarted = false;
-let inputTokens = 0;
-let outputTokens = 0;
-let cachedInputTokens = 0;
-let cacheWriteTokens = 0;
-let stopReason = null;
-let hasError = false;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedInputTokens = 0;
+  let cacheWriteTokens = 0;
+  let stopReason = null;
+  let hasError = false;
   const messageId = `msg_${randomUUID().slice(0, 12)}`;
 
   // Close the current text block if one is active
@@ -1190,7 +1084,7 @@ async function handleMessages(req, res) {
 
   const apiKey = getApiKey(req.headers);
   if (!apiKey) {
-    sendJson(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'Missing API key. Send in Authorization: Bearer <key> header' } });
+    sendJSON(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'Missing API key. Send in Authorization: Bearer <key> header' } });
     return;
   }
 
@@ -1258,7 +1152,7 @@ async function handleMessages(req, res) {
               case 'text-delta': fullText += event.text || ''; break;
               case 'tool-call':
                 (toolCalls = toolCalls || []).push({
-                  id: event.toolCallId || ('call_' + Date.now() + '_' + toolCalls.length),
+                  id: event.toolCallId || ('call_' + randomUUID().slice(0, 8)),
                   type: 'function',
                   function: {
                     name: event.toolName || '',
@@ -1376,7 +1270,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const host = req.headers.host || 'localhost';
+  const url = new URL(req.url, `http://${host}`);
 
   try {
     if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
