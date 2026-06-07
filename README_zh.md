@@ -1,5 +1,7 @@
 # Command Code Proxy
 
+> [English Docs](README.md)
+
 将 Command Code API 转换为 OpenAI / Anthropic 兼容接口的反代代理。单文件，零外部依赖。
 
 基于对官方 CLI v0.32.3 网络流量的分析，精确还原了 Command Code API 的请求协议，并实现了多层兼容适配。

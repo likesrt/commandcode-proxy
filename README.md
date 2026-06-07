@@ -1,5 +1,7 @@
 # Command Code Proxy
 
+> [中文文档](README_zh.md)
+
 A reverse proxy that converts Command Code API to OpenAI / Anthropic compatible endpoints. Single file, zero external dependencies.
 
 Built by analyzing official CLI v0.32.3 network traffic to accurately replicate the Command Code API request protocol.
