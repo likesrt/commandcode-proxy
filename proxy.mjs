@@ -648,9 +648,10 @@ async function handleChatCompletions(req, res) {
 
         res.write(translator.getDoneEvent());
       } catch (e) {
-        // 流中断 → 返回超时错误，客户端不会误判为成功
+        // 流中断，尝试发个结束标记
         if (!res.writableEnded) {
-          try { res.write(`data: ${JSON.stringify({ error: { message: `Stream idle timeout (${STREAM_IDLE_TIMEOUT_MS / 1000}s)`, type: 'timeout_error' }, input_tokens: 0 })}\n\n`); } catch {}
+          try { res.write(`data: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`); } catch {}
+          try { res.write('data: [DONE]\n\n'); } catch {}
         }
       }
 
@@ -738,11 +739,7 @@ async function handleChatCompletions(req, res) {
       });
     }
   } catch (e) {
-    if (e.message === 'STREAM_IDLE_TIMEOUT') {
-      sendJSON(res, 504, { error: { message: `Response idle timeout (${NONSTREAM_IDLE_TIMEOUT_MS / 1000}s)`, type: 'timeout_error', input_tokens: 0 } });
-    } else {
-      sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error' } });
-    }
+    sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
   }
 }
 
@@ -1126,9 +1123,7 @@ async function handleMessages(req, res) {
       } catch (e) {
         if (!res.writableEnded) {
           try {
-            const errType = e.message === 'STREAM_IDLE_TIMEOUT' ? 'timeout_error' : 'internal_error';
-            const msg = e.message === 'STREAM_IDLE_TIMEOUT' ? `Stream idle timeout (${STREAM_IDLE_TIMEOUT_MS / 1000}s)` : e.message;
-            res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: errType, message: msg }, input_tokens: 0 })}\n\n`);
+            res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'internal_error', message: e.message }, input_tokens: 0 })}\n\n`);
           } catch {}
         }
       }
@@ -1194,11 +1189,7 @@ async function handleMessages(req, res) {
       sendJSON(res, 200, buildAnthropicResponse(model, fullText, toolCalls, finishReason, usage));
     }
   } catch (e) {
-    if (e.message === 'STREAM_IDLE_TIMEOUT') {
-      sendAnthropicError(res, 504, 'timeout_error', `Response idle timeout (${NONSTREAM_IDLE_TIMEOUT_MS / 1000}s)`);
-    } else {
-      sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
-    }
+    sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
   }
 }
 
