@@ -33,7 +33,8 @@ commandcode/
 ├── package.json    # npm start / npm run dev
 ├── proxy.mjs       # Single-file proxy core (~1400 lines)
 ├── AGENTS.md       # AI dev instructions
-└── README.md       # This document
+├── README.md       # This document (English)
+└── README_zh.md    # Chinese documentation
 ```
 
 ## Configuration
