@@ -412,6 +412,11 @@ function createSseTranslator(model, completionId, created) {
         case 'finish': {
           const fr = finishReason || mapFinishReason(event.finishReason || 'stop');
           const u = event.totalUsage || usage;
+          // If CC produced 0 output tokens, zero input to avoid false billing
+          if (u && (u.outputTokens ?? 0) === 0) {
+            u.inputTokens = 0;
+            u.cachedInputTokens = 0;
+          }
           const openaiUsage = u ? {
             prompt_tokens: u.inputTokens ?? 0,
             completion_tokens: u.outputTokens ?? 0,
@@ -649,6 +654,9 @@ async function handleChatCompletions(req, res) {
         res.write(translator.getDoneEvent());
       } catch (e) {
         // 流中断 → 掐断连接，客户端视为连接断开自动重试
+        if (e.message === 'STREAM_IDLE_TIMEOUT') {
+          log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
+        }
         if (!res.writableEnded) {
           try { res.destroy(); } catch {}
         }
@@ -729,16 +737,24 @@ async function handleChatCompletions(req, res) {
           ),
           finish_reason: finishReason,
         }],
-    usage: usage ? {
-      prompt_tokens: usage.inputTokens ?? 0,
-      completion_tokens: usage.outputTokens ?? 0,
-      total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-      prompt_tokens_details: { cached_tokens: usage.cachedInputTokens ?? 0 },
-    } : undefined,
+    usage: usage ? (() => {
+      // If CC produced 0 output tokens, zero input to avoid false billing
+      if ((usage.outputTokens ?? 0) === 0) {
+        usage.inputTokens = 0;
+        usage.cachedInputTokens = 0;
+      }
+      return {
+        prompt_tokens: usage.inputTokens ?? 0,
+        completion_tokens: usage.outputTokens ?? 0,
+        total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+        prompt_tokens_details: { cached_tokens: usage.cachedInputTokens ?? 0 },
+      };
+    })() : undefined,
       });
     }
   } catch (e) {
     if (e.message === 'STREAM_IDLE_TIMEOUT') {
+      log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
       sendJSON(res, 429, { error: { message: 'Response timeout', type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
     } else {
       sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
@@ -775,12 +791,19 @@ function buildAnthropicResponse(model, fullText, toolCalls, finishReason, usage)
     content,
     stop_reason: mapAnthropicStopReason(finishReason || 'stop'),
     stop_sequence: null,
-    usage: {
-      input_tokens: usage?.inputTokens ?? 0,
-      output_tokens: usage?.outputTokens ?? 0,
-      cache_creation_input_tokens: usage?.inputTokenDetails?.cacheWriteTokens ?? null,
-      cache_read_input_tokens: usage?.cachedInputTokens ?? 0,
-    },
+    usage: (() => {
+      // If CC produced 0 output tokens, zero input to avoid false billing
+      if (usage && (usage.outputTokens ?? 0) === 0) {
+        usage.inputTokens = 0;
+        usage.cachedInputTokens = 0;
+      }
+      return {
+        input_tokens: usage?.inputTokens ?? 0,
+        output_tokens: usage?.outputTokens ?? 0,
+        cache_creation_input_tokens: usage?.inputTokenDetails?.cacheWriteTokens ?? null,
+        cache_read_input_tokens: usage?.cachedInputTokens ?? 0,
+      };
+    })(),
   };
 }
 
@@ -1038,6 +1061,11 @@ async function* createAnthropicSseTranslator(response, model) {
           if (event.finishReason) stopReason = mapAnthropicStopReason(event.finishReason);
           const u = event.totalUsage || event.usage;
           if (u) {
+            // If CC produced 0 output tokens, zero input to avoid false billing
+            if ((u.outputTokens ?? 0) === 0) {
+              u.inputTokens = 0;
+              u.cachedInputTokens = 0;
+            }
             inputTokens = u.inputTokens ?? inputTokens;
             outputTokens = u.outputTokens ?? outputTokens;
             cachedInputTokens = u.cachedInputTokens ?? cachedInputTokens;
@@ -1125,6 +1153,9 @@ async function handleMessages(req, res) {
         }
       } catch (e) {
         // 流中断 → 掐断连接
+        if (e.message === 'STREAM_IDLE_TIMEOUT') {
+          log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
+        }
         if (!res.writableEnded) {
           try { res.destroy(); } catch {}
         }
@@ -1192,6 +1223,7 @@ async function handleMessages(req, res) {
     }
   } catch (e) {
     if (e.message === 'STREAM_IDLE_TIMEOUT') {
+      log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
       sendAnthropicError(res, 429, 'rate_limit_error', 'Response timeout');
     } else {
       sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
