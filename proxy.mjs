@@ -413,7 +413,7 @@ function createSseTranslator(model, completionId, created) {
           const fr = finishReason || mapFinishReason(event.finishReason || 'stop');
           const u = event.totalUsage || usage;
           // If CC produced 0 output tokens, zero input to avoid false billing
-          if (u && (u.outputTokens ?? 0) === 0) {
+          if (u && Number(u.outputTokens) === 0) {
             u.inputTokens = 0;
             u.cachedInputTokens = 0;
           }
@@ -743,7 +743,7 @@ async function handleChatCompletions(req, res) {
         }],
     usage: usage ? (() => {
       // If CC produced 0 output tokens, zero input to avoid false billing
-      if ((usage.outputTokens ?? 0) === 0) {
+      if (Number(usage.outputTokens) === 0) {
         usage.inputTokens = 0;
         usage.cachedInputTokens = 0;
       }
@@ -798,7 +798,7 @@ function buildAnthropicResponse(model, fullText, toolCalls, finishReason, usage)
     stop_sequence: null,
     usage: (() => {
       // If CC produced 0 output tokens, zero input to avoid false billing
-      if (usage && (usage.outputTokens ?? 0) === 0) {
+      if (usage && Number(usage.outputTokens) === 0) {
         usage.inputTokens = 0;
         usage.cachedInputTokens = 0;
       }
@@ -1067,7 +1067,7 @@ async function* createAnthropicSseTranslator(response, model) {
           const u = event.totalUsage || event.usage;
           if (u) {
             // If CC produced 0 output tokens, zero input to avoid false billing
-            if ((u.outputTokens ?? 0) === 0) {
+            if (Number(u.outputTokens) === 0) {
               u.inputTokens = 0;
               u.cachedInputTokens = 0;
             }
