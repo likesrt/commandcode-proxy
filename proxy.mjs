@@ -5,13 +5,28 @@
 import http from 'http';
 import crypto from 'crypto';
 import { randomUUID } from 'crypto';
-import { readFileSync, existsSync, appendFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { appendFileSync } from 'fs';
 
 // ── 配置加载 ──────────────────────────────────────
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * 从环境变量读取正整数配置，非法或缺失时回退到默认值。
+ * @param {string} name 环境变量名称。
+ * @param {number} fallback 默认数值，用于环境变量为空、非数字或小于等于 0 的边界情况。
+ * @returns {number} 解析后的正整数配置。
+ */
+function readPositiveIntEnv(name, fallback) {
+  const value = process.env[name];
+  if (!value) return fallback;
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * 构建运行时配置，只使用内置默认值和环境变量覆盖。
+ * @returns {object} 代理服务配置；不会读取配置文件，Docker 与本地运行行为保持一致。
+ */
 function loadConfig() {
   const defaults = {
     port: 3000,
@@ -24,23 +39,17 @@ function loadConfig() {
     modelRefreshIntervalMs: 5 * 60 * 1000,  // 5 minutes
   };
 
-  const configPath = resolve(__dirname, 'config.json');
-  if (existsSync(configPath)) {
-    try {
-      const user = JSON.parse(readFileSync(configPath, 'utf-8'));
-      Object.assign(defaults, user);
-    } catch (e) {
-      console.error('[config] Failed to parse config.json:', e.message);
-    }
-  }
-
-  // 环境变量覆写
-  if (process.env.PORT) defaults.port = parseInt(process.env.PORT);
+  // 只允许环境变量覆盖默认值，避免容器镜像意外绑定构建时的本地配置。
+  if (process.env.PORT) defaults.port = readPositiveIntEnv('PORT', defaults.port);
   if (process.env.HOST) defaults.host = process.env.HOST;
   if (process.env.CC_API_BASE) defaults.apiBase = process.env.CC_API_BASE;
   if (process.env.PROJECT_SLUG) defaults.projectSlug = process.env.PROJECT_SLUG;
   if (process.env.LOG_FILE) defaults.logFile = process.env.LOG_FILE;
+  if (process.env.LOG_LEVEL) defaults.logLevel = process.env.LOG_LEVEL;
   if (process.env.CC_USE_PROVIDER_MODELS) defaults.useProviderModels = process.env.CC_USE_PROVIDER_MODELS !== 'false';
+  if (process.env.MODEL_REFRESH_INTERVAL_MS) {
+    defaults.modelRefreshIntervalMs = readPositiveIntEnv('MODEL_REFRESH_INTERVAL_MS', defaults.modelRefreshIntervalMs);
+  }
 
   return defaults;
 }
@@ -70,7 +79,7 @@ setInterval(refreshCCVersion, CC_VERSION_REFRESH_MS);
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB — 请求体大小上限
 const STREAM_IDLE_TIMEOUT_MS = 30000;   // 30s — 流式无新数据中断
-const NONSTREAM_IDLE_TIMEOUT_MS = 90000; // 90s — 非流式超时更宽容
+const NONSTREAM_IDLE_TIMEOUT_MS = 120000; // 120s — 非流式超时更宽容
 
 // ── 日志 ─────────────────────────────────────────────
 function log(level, msg, data) {

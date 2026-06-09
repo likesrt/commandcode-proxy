@@ -4,4 +4,4 @@ node_modules/
 .omo/
 stdout.txt
 stderr.txt
-
+.env

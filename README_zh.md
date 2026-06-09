@@ -20,7 +20,7 @@ npm run dev      # watch 模式（文件修改自动重启）
 API Key 通过 `Authorization` 请求头传入，**无需配置到文件中**。Key 必须以 `user_` 开头（自动匹配任意前缀，如 `Bearer token_user_xxx`）：
 
 ```bash
-curl http://127.0.0.1:3050/v1/chat/completions \
+curl http://127.0.0.1:50209/v1/chat/completions \
   -H "Authorization: Bearer user_xxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}'
@@ -30,7 +30,8 @@ curl http://127.0.0.1:3050/v1/chat/completions \
 
 ```
 commandcode/
-├── config.json     # 端口 / 日志路径等
+├── Dockerfile      # 容器镜像定义
+├── docker-compose.yml # Compose 服务定义
 ├── LICENSE         # MIT License
 ├── package.json    # npm start / npm run dev
 ├── proxy.mjs       # 单文件核心代理（~1400 行）
@@ -41,29 +42,26 @@ commandcode/
 
 ## 配置
 
-### config.json
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `port` | `3000` | 监听端口 |
-| `host` | `0.0.0.0` | 监听地址 |
-| `apiBase` | `https://api.commandcode.ai` | CC API 地址 |
-| `projectSlug` | `cc-proxy` | `x-project-slug` header |
-| `logFile` | `""` | 日志文件路径（空=仅控制台） |
-| `logLevel` | `info` | 日志级别 |
-| `useProviderModels` | `true` | 从 Provider API 动态拉取模型列表 |
-| `modelRefreshIntervalMs` | `300000` | 模型列表缓存刷新间隔（5min） |
+运行时配置只来自内置默认值和环境变量。服务不再读取 `config.json`。
 
 ### 环境变量
 
-| 变量 | 对应 config 字段 |
-|------|-----------------|
-| `PORT` | `port` |
-| `HOST` | `host` |
-| `CC_API_BASE` | `apiBase` |
-| `PROJECT_SLUG` | `projectSlug` |
-| `LOG_FILE` | `logFile` |
-| `CC_USE_PROVIDER_MODELS` | `useProviderModels` |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `3000` | 监听端口 |
+| `HOST` | `0.0.0.0` | 监听地址 |
+| `CC_API_BASE` | `https://api.commandcode.ai` | CC API 地址 |
+| `PROJECT_SLUG` | `cc-proxy` | `x-project-slug` header |
+| `LOG_FILE` | `""` | 日志文件路径（空=仅控制台） |
+| `LOG_LEVEL` | `info` | 日志级别 |
+| `CC_USE_PROVIDER_MODELS` | `true` | 从 Provider API 动态拉取模型列表；设为 `false` 可关闭 |
+| `MODEL_REFRESH_INTERVAL_MS` | `300000` | 模型列表缓存刷新间隔（5min） |
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
 
 ## API 接口
 
@@ -272,7 +270,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="user_xxxxxxxxx",
-    base_url="http://127.0.0.1:3050/v1",
+    base_url="http://127.0.0.1:50209/v1",
 )
 
 response = client.chat.completions.create(
@@ -286,7 +284,7 @@ for chunk in response:
 
 ### cURL
 ```bash
-curl http://127.0.0.1:3050/v1/chat/completions \
+curl http://127.0.0.1:50209/v1/chat/completions \
   -H "Authorization: Bearer user_xxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -298,7 +296,7 @@ curl http://127.0.0.1:3050/v1/chat/completions \
 
 ### Cursor
 在 Cursor 设置中添加 Custom Provider：
-- **API Base URL**: `http://127.0.0.1:3050/v1`
+- **API Base URL**: `http://127.0.0.1:50209/v1`
 - **API Key**: `user_xxxxxxxxx`
 - **Model**: 从模型列表中选择
 
@@ -308,7 +306,7 @@ import anthropic
 
 client = anthropic.Anthropic(
     api_key="user_xxxxxxxxx",
-    base_url="http://127.0.0.1:3050",
+    base_url="http://127.0.0.1:50209",
 )
 message = client.messages.create(
     model="deepseek/deepseek-v4-flash",
@@ -323,7 +321,7 @@ print(message.content[0].text)
 ```json
 {
   "provider": "openai-compatible",
-  "baseUrl": "http://127.0.0.1:3050/v1",
+  "baseUrl": "http://127.0.0.1:50209/v1",
   "apiKey": "user_xxxxxxxxx"
 }
 ```

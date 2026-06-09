@@ -20,7 +20,7 @@ npm run dev      # Watch mode (auto-reload on file changes)
 API Key is passed via the `Authorization` request header — **no need to store it in config files**. Key must start with `user_` (automatically matched with any prefix, e.g. `Bearer token_user_xxx`):
 
 ```bash
-curl http://127.0.0.1:3050/v1/chat/completions \
+curl http://127.0.0.1:50209/v1/chat/completions \
   -H "Authorization: Bearer user_xxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}'
@@ -30,7 +30,8 @@ curl http://127.0.0.1:3050/v1/chat/completions \
 
 ```
 commandcode/
-├── config.json     # Port / log path etc.
+├── Dockerfile      # Container image definition
+├── docker-compose.yml # Compose service definition
 ├── LICENSE         # MIT License
 ├── package.json    # npm start / npm run dev
 ├── proxy.mjs       # Single-file proxy core (~1400 lines)
@@ -41,29 +42,26 @@ commandcode/
 
 ## Configuration
 
-### config.json
-
-| Field | Default | Description |
-|------|--------|-------------|
-| `port` | `3000` | Listen port |
-| `host` | `0.0.0.0` | Listen address |
-| `apiBase` | `https://api.commandcode.ai` | CC API base URL |
-| `projectSlug` | `cc-proxy` | `x-project-slug` header |
-| `logFile` | `""` | Log file path (empty = console only) |
-| `logLevel` | `info` | Log level |
-| `useProviderModels` | `true` | Dynamically fetch model list from Provider API |
-| `modelRefreshIntervalMs` | `300000` | Model list cache refresh interval (5 min) |
+Configuration is loaded from built-in defaults and environment variables only. The service does not read `config.json` at runtime.
 
 ### Environment Variables
 
-| Variable | Overrides |
-|----------|-----------|
-| `PORT` | `port` |
-| `HOST` | `host` |
-| `CC_API_BASE` | `apiBase` |
-| `PROJECT_SLUG` | `projectSlug` |
-| `LOG_FILE` | `logFile` |
-| `CC_USE_PROVIDER_MODELS` | `useProviderModels` |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | Listen port |
+| `HOST` | `0.0.0.0` | Listen address |
+| `CC_API_BASE` | `https://api.commandcode.ai` | CC API base URL |
+| `PROJECT_SLUG` | `cc-proxy` | `x-project-slug` header |
+| `LOG_FILE` | `""` | Log file path (empty = console only) |
+| `LOG_LEVEL` | `info` | Log level |
+| `CC_USE_PROVIDER_MODELS` | `true` | Dynamically fetch model list from Provider API; set `false` to disable |
+| `MODEL_REFRESH_INTERVAL_MS` | `300000` | Model list cache refresh interval (5 min) |
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
 
 ## API Endpoints
 
@@ -272,7 +270,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="user_xxxxxxxxx",
-    base_url="http://127.0.0.1:3050/v1",
+    base_url="http://127.0.0.1:50209/v1",
 )
 
 response = client.chat.completions.create(
@@ -286,7 +284,7 @@ for chunk in response:
 
 ### cURL
 ```bash
-curl http://127.0.0.1:3050/v1/chat/completions \
+curl http://127.0.0.1:50209/v1/chat/completions \
   -H "Authorization: Bearer user_xxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -298,7 +296,7 @@ curl http://127.0.0.1:3050/v1/chat/completions \
 
 ### Cursor
 Add a Custom Provider in Cursor settings:
-- **API Base URL**: `http://127.0.0.1:3050/v1`
+- **API Base URL**: `http://127.0.0.1:50209/v1`
 - **API Key**: `user_xxxxxxxxx`
 - **Model**: Choose from the model list
 
@@ -308,7 +306,7 @@ import anthropic
 
 client = anthropic.Anthropic(
     api_key="user_xxxxxxxxx",
-    base_url="http://127.0.0.1:3050",
+    base_url="http://127.0.0.1:50209",
 )
 message = client.messages.create(
     model="deepseek/deepseek-v4-flash",
@@ -323,7 +321,7 @@ print(message.content[0].text)
 ```json
 {
   "provider": "openai-compatible",
-  "baseUrl": "http://127.0.0.1:3050/v1",
+  "baseUrl": "http://127.0.0.1:50209/v1",
   "apiKey": "user_xxxxxxxxx"
 }
 ```

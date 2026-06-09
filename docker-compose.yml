@@ -1,0 +1,49 @@
+services:
+  commandcode-proxy:
+    build: .
+    container_name: commandcode-proxy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:23322:50209"
+    environment:
+      # 服务监听端口。
+      # 必须和 ports 的容器端口保持一致；当前容器内监听 50209。
+      PORT: "50209"
+      # 服务监听地址。
+      # Docker 容器内必须使用 0.0.0.0，不能使用 127.0.0.1，否则宿主机无法访问。
+      HOST: "0.0.0.0"
+      # Command Code 上游 API 地址。
+      # 一般保持默认即可；只有在使用自建网关、代理或测试环境时才需要修改。
+      CC_API_BASE: "https://api.commandcode.ai"
+      # 发送给上游的 x-project-slug 标识。
+      # 可按部署场景自定义，用于区分不同项目或实例。
+      PROJECT_SLUG: "cc-proxy"
+      # 日志文件路径。
+      # 留空表示只输出到容器 stdout/stderr，方便 docker logs 或 1Panel 查看。
+      # 如需写入文件，可设置为容器内路径，并额外挂载 volume 防止日志随容器删除。
+      LOG_FILE: ""
+      # 日志级别。
+      # 当前代码主要用于标记日志输出级别，建议保持 info。
+      LOG_LEVEL: "info"
+      # 是否从 Provider API 动态拉取模型列表。
+      # true 表示优先动态获取；设置为 false 时使用 proxy.mjs 内置模型列表兜底。
+      CC_USE_PROVIDER_MODELS: "true"
+      # 模型列表缓存刷新间隔，单位毫秒。
+      # 默认 300000 = 5 分钟；数值过小会增加上游请求频率。
+      MODEL_REFRESH_INTERVAL_MS: "300000"
+
+    # ───── 标签 ─────
+    labels:
+      - createdBy=Apps
+    
+    # ───── 关联网络 ─────
+    networks:
+      - 1panel-network
+
+
+# ──────────────────────────────────────────────────────────────
+# 网络定义（外部网络）
+# ──────────────────────────────────────────────────────────────
+networks:
+  1panel-network:
+    external: true
