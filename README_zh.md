@@ -32,6 +32,7 @@ curl http://127.0.0.1:50209/v1/chat/completions \
 commandcode/
 ├── Dockerfile      # 容器镜像定义
 ├── docker-compose.yml # Compose 服务定义
+├── .dockerignore   # 构建上下文排除规则
 ├── LICENSE         # MIT License
 ├── package.json    # npm start / npm run dev
 ├── proxy.mjs       # 单文件核心代理（~1400 行）
@@ -389,6 +390,40 @@ CLI 发送图片的格式：
 ```
 
 代理收到 OpenAI `image_url` 格式后自动转为上述 CC 格式透传。
+
+## Docker 部署
+
+### 快速启动 (docker compose)
+
+```bash
+docker compose up -d
+```
+
+代理将在 `http://0.0.0.0:3050` 监听。通过 `PROXY_PORT` 自定义主机端口：
+
+```bash
+PROXY_PORT=13050 docker compose up -d
+```
+
+### 从源码构建
+
+```bash
+docker build -t commandcode-proxy:latest .
+docker run -d -p 3050:3050 -e PORT=3050 commandcode-proxy:latest
+```
+
+### 多架构构建
+
+```bash
+npm run docker:build:multi
+```
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `3050` | 容器内监听端口 |
+| `PROXY_PORT` | `3050` | 主机映射端口（仅 compose） |
 
 ## 免责声明
 

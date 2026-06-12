@@ -32,6 +32,7 @@ curl http://127.0.0.1:50209/v1/chat/completions \
 commandcode/
 ├── Dockerfile      # Container image definition
 ├── docker-compose.yml # Compose service definition
+├── .dockerignore   # Build context exclusions
 ├── LICENSE         # MIT License
 ├── package.json    # npm start / npm run dev
 ├── proxy.mjs       # Single-file proxy core (~1400 lines)
@@ -389,6 +390,40 @@ The CLI sends images in this format:
 ```
 
 The proxy receives OpenAI `image_url` format and converts it to the above CC format transparently.
+
+## Docker Deployment
+
+### Quick Start (docker compose)
+
+```bash
+docker compose up -d
+```
+
+The proxy will listen on `http://0.0.0.0:3050`. Set `PROXY_PORT` to customize the host port:
+
+```bash
+PROXY_PORT=13050 docker compose up -d
+```
+
+### Build from Source
+
+```bash
+docker build -t commandcode-proxy:latest .
+docker run -d -p 3050:3050 -e PORT=3050 commandcode-proxy:latest
+```
+
+### Multi-Architecture Build
+
+```bash
+npm run docker:build:multi
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3050` | Container listen port |
+| `PROXY_PORT` | `3050` | Host port (compose only) |
 
 ## Disclaimer
 

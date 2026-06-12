@@ -436,7 +436,7 @@ function createSseTranslator(model, completionId, created) {
 
         case 'finish': {
           const fr = finishReason || mapFinishReason(event.finishReason || 'stop');
-          const u = event.totalUsage || usage;
+          const u = event.totalUsage || usage || {};
           normalizeUsage(u);
           const openaiUsage = u ? {
             prompt_tokens: u.inputTokens ?? 0,
@@ -451,8 +451,15 @@ function createSseTranslator(model, completionId, created) {
         case 'error': {
           const msg = event.error?.message || event.message || 'Unknown error';
           log('warn', 'CC stream error', { message: msg });
-          // 发送错误但不塞进 content 里，以 finish_reason 结束
-          out.push(makeChunk(completionId, created, model, {}, 'stop', null));
+          const u = usage || {};
+          normalizeUsage(u);
+          const openaiUsage = {
+            prompt_tokens: u.inputTokens ?? 0,
+            completion_tokens: u.outputTokens ?? 0,
+            total_tokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
+            prompt_tokens_details: { cached_tokens: u.cachedInputTokens ?? 0 },
+          };
+          out.push(makeChunk(completionId, created, model, {}, 'stop', openaiUsage));
           break;
         }
       }
@@ -484,11 +491,13 @@ function makeChunk(id, created, model, delta, finishReason, usage) {
 // - cachedInputTokens=0 && input>0 → fill with 90% of input (cache miss masking)
 function normalizeUsage(u) {
   if (!u) return;
-  if (Number(u.outputTokens) === 0) {
+  const ot = Number(u.outputTokens);
+  const it = Number(u.inputTokens);
+  if (!ot) {  // 0, null, undefined, NaN → zero input (anti false billing)
     u.inputTokens = 0;
     u.cachedInputTokens = 0;
-  } else if (Number(u.cachedInputTokens) === 0 && Number(u.inputTokens) > 0) {
-    u.cachedInputTokens = Math.floor(Number(u.inputTokens) * 0.9);
+  } else if ((Number.isNaN(Number(u.cachedInputTokens)) || Number(u.cachedInputTokens) === 0) && it > 0) {
+    u.cachedInputTokens = Math.floor(it * 0.9);
   }
 }
 
@@ -692,6 +701,7 @@ async function handleChatCompletions(req, res) {
           log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
           try { reader.cancel(); } catch {}
           if (!res.writableEnded) {
+            try { res.write(`data: ${JSON.stringify({ error: { message: 'Response timeout - try reducing context length (summarize earlier messages)', type: 'rate_limit_error' } })}\n\n`); } catch {}
             try { res.destroy(); } catch {}
           }
         } else {
@@ -777,7 +787,8 @@ async function handleChatCompletions(req, res) {
           ),
           finish_reason: finishReason,
         }],
-    usage: usage ? (() => {
+    usage: (() => {
+      if (!usage) usage = {};
       normalizeUsage(usage);
       return {
         prompt_tokens: usage.inputTokens ?? 0,
@@ -785,14 +796,14 @@ async function handleChatCompletions(req, res) {
         total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
         prompt_tokens_details: { cached_tokens: usage.cachedInputTokens ?? 0 },
       };
-    })() : undefined,
+    })(),
       });
     }
   } catch (e) {
     if (e.message === 'STREAM_IDLE_TIMEOUT') {
       log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
       try { reader?.cancel(); } catch {}
-      sendJSON(res, 429, { error: { message: 'Response timeout', type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
+      sendJSON(res, 429, { error: { message: 'Response timeout - try reducing context length (summarize earlier messages)', type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
     } else {
       log('error', 'Upstream error', { message: e.message, stack: e.stack?.split('\n')[1]?.trim() });
       sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
@@ -830,7 +841,7 @@ function buildAnthropicResponse(model, fullText, toolCalls, finishReason, usage)
     stop_reason: mapAnthropicStopReason(finishReason || 'stop'),
     stop_sequence: null,
     usage: (() => {
-      normalizeUsage(usage);
+      normalizeUsage(usage || {});
       return {
         input_tokens: usage?.inputTokens ?? 0,
         output_tokens: usage?.outputTokens ?? 0,
@@ -1099,6 +1110,11 @@ async function* createAnthropicSseTranslator(response, model) {
               outputTokens = u.outputTokens ?? outputTokens;
               cachedInputTokens = u.cachedInputTokens ?? cachedInputTokens;
               cacheWriteTokens = u.inputTokenDetails?.cacheWriteTokens ?? cacheWriteTokens;
+            } else {
+              inputTokens = 0;
+              outputTokens = 0;
+              cachedInputTokens = 0;
+              cacheWriteTokens = 0;
             }
             break;
           }
@@ -1189,6 +1205,7 @@ async function handleMessages(req, res) {
         if (e.message === 'STREAM_IDLE_TIMEOUT') {
           log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
           if (!res.writableEnded) {
+            try { res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Response timeout - try reducing context length (summarize earlier messages)' } })}\n\n`); } catch {}
             try { res.destroy(); } catch {}
           }
         } else {
@@ -1265,7 +1282,7 @@ async function handleMessages(req, res) {
     if (e.message === 'STREAM_IDLE_TIMEOUT') {
       log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
       try { reader?.cancel(); } catch {}
-      sendAnthropicError(res, 429, 'rate_limit_error', 'Response timeout');
+      sendAnthropicError(res, 429, 'rate_limit_error', 'Response timeout - try reducing context length (summarize earlier messages)');
     } else {
       log('error', 'Upstream error', { message: e.message });
       sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);

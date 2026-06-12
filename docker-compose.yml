@@ -32,10 +32,17 @@ services:
       # 默认 300000 = 5 分钟；数值过小会增加上游请求频率。
       MODEL_REFRESH_INTERVAL_MS: "300000"
 
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://127.0.0.1:50209/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
     # ───── 标签 ─────
     labels:
       - createdBy=Apps
-    
+
     # ───── 关联网络 ─────
     networks:
       - 1panel-network
